@@ -1,0 +1,40 @@
+{
+  "five_hour": { "utilization": 95.0, "resets_at": "2026-07-25T00:59:59.492655+00:00" },
+  "seven_day": { "utilization": 71.0, "resets_at": "2026-07-26T09:59:59.492684+00:00" },
+  "limits": [
+    {
+      "kind": "session",
+      "group": "session",
+      "percent": 95,
+      "severity": "normal",
+      "resets_at": "2026-07-25T00:59:59.492655+00:00",
+      "scope": null,
+      "is_active": true
+    },
+    {
+      "kind": "weekly_all",
+      "group": "weekly",
+      "percent": 71,
+      "severity": "normal",
+      "resets_at": "2026-07-26T09:59:59.492684+00:00",
+      "scope": null,
+      "is_active": true
+    },
+    {
+      "kind": "monthly_experimental",
+      "group": "monthly",
+      "percent": 5,
+      "severity": "una_gravedad_nueva",
+      "resets_at": "2026-08-01T09:59:59+00:00",
+      "scope": null,
+      "is_active": false
+    }
+  ],
+  "spend": {
+    "used": { "amount_minor": 1234, "currency": "USD", "exponent": 2 },
+    "limit": { "amount_minor": 5000, "currency": "USD", "exponent": 2 },
+    "percent": 24.68,
+    "severity": "normal",
+    "enabled": true
+  }
+}

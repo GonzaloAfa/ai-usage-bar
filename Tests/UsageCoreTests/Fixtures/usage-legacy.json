@@ -1,0 +1,13 @@
+{
+  "five_hour": {
+    "utilization": 12.5,
+    "resets_at": "2026-07-25T00:59:59+00:00"
+  },
+  "seven_day": {
+    "utilization": 44,
+    "resets_at": "2026-07-26T09:59:59.1+00:00"
+  },
+  "limits": [],
+  "un_campo_que_no_existia": { "anidado": [1, 2, 3] },
+  "otro_nuevo": "texto"
+}

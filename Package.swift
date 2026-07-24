@@ -1,0 +1,19 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "ClaudeUsageBar",
+    platforms: [.macOS(.v14)],
+    targets: [
+        // Toda la lógica vive aquí para que sea testeable; el ejecutable sólo arranca AppKit.
+        .target(name: "UsageCore"),
+        .executableTarget(name: "ClaudeUsageBar", dependencies: ["UsageCore"]),
+        // Dibuja las láminas de estados del README. No se envía con la app.
+        .executableTarget(name: "GenerateDocs", dependencies: ["UsageCore"]),
+        .testTarget(
+            name: "UsageCoreTests",
+            dependencies: ["UsageCore"],
+            resources: [.copy("Fixtures")]
+        ),
+    ]
+)
