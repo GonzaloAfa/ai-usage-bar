@@ -240,3 +240,7 @@ launchctl load ~/Library/LaunchAgents/cl.alisonvivanco.claude-usage-bar.plist
 Historial y gráficas de consumo, cálculo de tokens y costo desde los `.jsonl` de
 `~/.claude/projects/`, notificaciones al cruzar umbrales, y cuentas que usan `ANTHROPIC_API_KEY` en vez
 de OAuth.
+
+## Licencia
+
+MIT — ver [LICENSE](LICENSE).
