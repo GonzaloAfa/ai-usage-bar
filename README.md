@@ -36,6 +36,10 @@ open /Applications/AIUsageBar.app
 Clic izquierdo abre el popover de ese proveedor; clic derecho abre su menú con *Actualizar ahora*,
 *Abrir en claude.ai* o *Abrir en chatgpt.com*, *Iniciar al abrir sesión* y *Salir*.
 
+Si prefieres que lo haga un agente de terminal —Claude Code, Codex u otro— [AGENTS.md](AGENTS.md) es
+el procedimiento completo y repetible: comprobaciones previas, instalación, inicio automático al
+abrir sesión, cómo verificar el resultado sin permiso de grabación de pantalla y qué no debe tocar.
+
 Para trabajar sobre el código:
 
 ```bash
