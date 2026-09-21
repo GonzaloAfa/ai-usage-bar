@@ -16,7 +16,7 @@ struct RenderTests {
         if let path = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !path.isEmpty {
             return URL(fileURLWithPath: path)
         }
-        return FileManager.default.temporaryDirectory.appending(path: "claude-usage-bar-snapshots")
+        return FileManager.default.temporaryDirectory.appending(path: "ai-usage-bar-snapshots")
     }
 
     private func write(_ image: NSImage, as name: String) throws -> URL {
@@ -152,7 +152,7 @@ struct RenderTests {
         let url = try #require(Bundle.module.url(forResource: "Fixtures/usage-real", withExtension: "json"))
         let store = UsageStore(
             client: FixtureUsageClient(url: url),
-            defaults: UserDefaults(suiteName: "cl.alisonvivanco.claude-usage-bar.tests")!
+            defaults: UserDefaults(suiteName: "cl.alisonvivanco.ai-usage-bar.tests")!
         )
         await store.refreshAndWait()
 
@@ -193,7 +193,7 @@ struct RenderTests {
         let url = try #require(Bundle.module.url(forResource: "Fixtures/usage-critical", withExtension: "json"))
         let store = UsageStore(
             client: FixtureUsageClient(url: url),
-            defaults: UserDefaults(suiteName: "cl.alisonvivanco.claude-usage-bar.tests")!
+            defaults: UserDefaults(suiteName: "cl.alisonvivanco.ai-usage-bar.tests")!
         )
         await store.refreshAndWait()
 
@@ -213,11 +213,11 @@ struct RenderTests {
 struct UsageStoreStateTests {
     private struct FailingClient: UsageFetching {
         let error: any Error
-        func fetch() async throws -> UsageResponse { throw error }
+        func fetch() async throws -> ProviderSnapshot { throw error }
     }
 
     private func makeDefaults() -> UserDefaults {
-        let defaults = UserDefaults(suiteName: "cl.alisonvivanco.claude-usage-bar.tests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: "cl.alisonvivanco.ai-usage-bar.tests.\(UUID().uuidString)")!
         return defaults
     }
 

@@ -10,106 +10,58 @@ public enum UsageError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .unauthorized:
-            return "La sesión caducó. Abre Claude Code para renovarla."
+            // Qué hacer para renovarla lo dice el popover, que sí sabe de qué proveedor se trata.
+            return "La sesión caducó."
         case .rateLimited:
             return "Demasiadas consultas. Reintentando en un momento."
         case .http(let status):
             return "El servidor respondió \(status)."
         case .transport:
-            return "Sin conexión con la API de Claude."
+            return "Sin conexión con la API."
         case .decoding:
             return "La respuesta de uso no se pudo interpretar."
         }
     }
 }
 
+/// Consultar el consumo de un proveedor y devolverlo ya traducido.
+///
+/// Devuelve `ProviderSnapshot` y no la respuesta cruda a propósito: es lo único que la interfaz
+/// entiende y lo que permite que Claude y Codex, con endpoints que no se parecen en nada, pasen por
+/// el mismo store y las mismas vistas.
 public protocol UsageFetching: Sendable {
-    func fetch() async throws -> UsageResponse
+    func fetch() async throws -> ProviderSnapshot
 }
 
-/// Cliente del endpoint que alimenta `/usage` en Claude Code y la pantalla de Uso de claude.ai.
-public struct APIUsageClient: UsageFetching {
-    public static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-
-    private let tokenSource: any TokenProviding
-    private let session: URLSession
-
-    public init(
-        tokenSource: any TokenProviding = KeychainTokenSource(),
-        session: URLSession = {
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 10
-            configuration.waitsForConnectivity = false
-            return URLSession(configuration: configuration)
-        }()
-    ) {
-        self.tokenSource = tokenSource
-        self.session = session
-    }
-
-    public func fetch() async throws -> UsageResponse {
-        let credentials = try tokenSource.currentCredentials()
-
-        // Si el token ya venció, no gastamos una llamada: Claude Code lo renovará en el llavero y la
-        // próxima lectura tomará el nuevo. Renovarlo nosotros podría invalidar su sesión.
-        if credentials.isExpired() { throw UsageError.unauthorized }
-
-        var request = URLRequest(url: Self.endpoint)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            // El mensaje del sistema puede incluir la URL, nunca el encabezado con el token.
-            throw UsageError.transport((error as NSError).localizedDescription)
-        }
-
-        guard let http = response as? HTTPURLResponse else {
-            throw UsageError.transport("Respuesta inesperada del servidor.")
-        }
-
-        switch http.statusCode {
-        case 200:
-            do {
-                return try UsageResponse.decode(data)
-            } catch {
-                throw UsageError.decoding(String(describing: error))
-            }
-        case 401, 403:
-            throw UsageError.unauthorized
-        case 429:
-            let retryAfter = http.value(forHTTPHeaderField: "retry-after").flatMap(TimeInterval.init)
-            throw UsageError.rateLimited(retryAfter: retryAfter)
-        default:
-            throw UsageError.http(http.statusCode)
-        }
-    }
-}
-
-/// Lee la respuesta de un archivo en vez de la red, para iterar la interfaz sin tocar el llavero.
-/// Se activa con `CLAUDE_USAGE_BAR_FIXTURE=/ruta/al.json`.
+/// Lee la respuesta de un archivo en vez de la red, para iterar la interfaz sin tocar credenciales.
+/// Se activa con `AI_USAGE_BAR_FIXTURE_CLAUDE=/ruta.json` o `AI_USAGE_BAR_FIXTURE_CODEX=/ruta.json`.
 public struct FixtureUsageClient: UsageFetching {
-    public static let environmentKey = "CLAUDE_USAGE_BAR_FIXTURE"
+    public static func environmentKey(for provider: Provider) -> String {
+        "AI_USAGE_BAR_FIXTURE_\(provider.id.uppercased())"
+    }
 
     private let url: URL
+    private let provider: Provider
 
-    public init(url: URL) {
+    public init(url: URL, provider: Provider = .claude) {
         self.url = url
+        self.provider = provider
     }
 
-    public init?(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        guard let path = environment[Self.environmentKey], !path.isEmpty else { return nil }
+    public init?(
+        provider: Provider,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard let path = environment[Self.environmentKey(for: provider)], !path.isEmpty else {
+            return nil
+        }
         self.url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        self.provider = provider
     }
 
-    public func fetch() async throws -> UsageResponse {
+    public func fetch() async throws -> ProviderSnapshot {
         do {
-            return try UsageResponse.decode(try Data(contentsOf: url))
+            return try provider.decodeFixture(try Data(contentsOf: url))
         } catch let error as UsageError {
             throw error
         } catch {
@@ -118,7 +70,29 @@ public struct FixtureUsageClient: UsageFetching {
     }
 }
 
-/// El cliente que corresponde al entorno: el archivo de prueba si está declarado, la API si no.
-public func makeDefaultUsageClient() -> any UsageFetching {
-    FixtureUsageClient() ?? APIUsageClient()
+/// La sesión que usan todos los clientes: efímera, sin caché en disco y con un plazo corto. Es un
+/// indicador de barra de menú; si la red no responde en diez segundos, mejor reintentar luego.
+public func makeUsageURLSession() -> URLSession {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = 10
+    configuration.waitsForConnectivity = false
+    return URLSession(configuration: configuration)
+}
+
+/// Traduce el estado HTTP a un error del dominio.
+///
+/// Es común a los dos proveedores y no mira el cuerpo de la respuesta a propósito: cuando
+/// `chatgpt.com` rechaza una consulta devuelve una página HTML, no JSON.
+func usageError(forStatus status: Int, headers: HTTPURLResponse) -> UsageError? {
+    switch status {
+    case 200:
+        return nil
+    case 401, 403:
+        return .unauthorized
+    case 429:
+        let retryAfter = headers.value(forHTTPHeaderField: "retry-after").flatMap(TimeInterval.init)
+        return .rateLimited(retryAfter: retryAfter)
+    default:
+        return .http(status)
+    }
 }

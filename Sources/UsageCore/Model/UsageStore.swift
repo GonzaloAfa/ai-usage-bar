@@ -15,8 +15,11 @@ public final class UsageStore {
         case failed(String)
     }
 
+    /// De quién es el consumo que muestra este store.
+    public let provider: Provider
+
     public private(set) var state: State = .loading
-    public private(set) var snapshot: UsageResponse?
+    public private(set) var snapshot: ProviderSnapshot?
     public private(set) var gauges: [LimitGauge] = []
     public private(set) var lastUpdated: Date?
 
@@ -35,16 +38,20 @@ public final class UsageStore {
     private var inFlight: Task<Void, Never>?
     private var currentInterval: TimeInterval
 
-    private static let cacheKey = "cachedUsageResponse"
-    private static let cacheDateKey = "cachedUsageResponseDate"
+    /// La caché lleva el nombre del proveedor: con dos stores sobre los mismos `UserDefaults`, una
+    /// clave compartida haría que cada uno pisara lo que guardó el otro.
+    private var cacheKey: String { "cachedUsage.\(provider.id)" }
+    private var cacheDateKey: String { "cachedUsageDate.\(provider.id)" }
 
     public init(
-        client: any UsageFetching = makeDefaultUsageClient(),
+        provider: Provider = .claude,
+        client: (any UsageFetching)? = nil,
         defaults: UserDefaults = .standard,
         baseInterval: TimeInterval = 60,
         maxInterval: TimeInterval = 300
     ) {
-        self.client = client
+        self.provider = provider
+        self.client = client ?? provider.makeUsageClient()
         self.defaults = defaults
         self.baseInterval = baseInterval
         self.maxInterval = maxInterval
@@ -107,7 +114,7 @@ public final class UsageStore {
         scheduleTimer(after: currentInterval)
     }
 
-    private func apply(_ response: UsageResponse) {
+    private func apply(_ response: ProviderSnapshot) {
         snapshot = response
         gauges = response.gauges
         lastUpdated = Date()
@@ -122,7 +129,8 @@ public final class UsageStore {
         if snapshot != nil { isStale = true }
 
         switch error {
-        case UsageError.unauthorized, TokenError.notFound, TokenError.keychainDenied:
+        case UsageError.unauthorized, TokenError.notFound, TokenError.keychainDenied,
+            TokenError.unsupportedAuthMode:
             state = .needsReauth
             currentInterval = maxInterval
         case UsageError.rateLimited(let retryAfter):
@@ -156,20 +164,20 @@ public final class UsageStore {
 
     /// Guardar la última respuesta permite pintar cifras al arrancar en vez de un ícono vacío. Sólo
     /// contiene porcentajes y fechas: ningún dato sensible.
-    private func cache(_ response: UsageResponse) {
+    private func cache(_ response: ProviderSnapshot) {
         guard let data = try? JSONEncoder().encode(response) else { return }
-        defaults.set(data, forKey: Self.cacheKey)
-        defaults.set(Date(), forKey: Self.cacheDateKey)
+        defaults.set(data, forKey: cacheKey)
+        defaults.set(Date(), forKey: cacheDateKey)
     }
 
     private func loadCachedSnapshot() {
         guard
-            let data = defaults.data(forKey: Self.cacheKey),
-            let response = try? JSONDecoder().decode(UsageResponse.self, from: data)
+            let data = defaults.data(forKey: cacheKey),
+            let response = try? JSONDecoder().decode(ProviderSnapshot.self, from: data)
         else { return }
         snapshot = response
         gauges = response.gauges
-        lastUpdated = defaults.object(forKey: Self.cacheDateKey) as? Date
+        lastUpdated = defaults.object(forKey: cacheDateKey) as? Date
         isStale = true
     }
 
@@ -191,12 +199,13 @@ public final class UsageStore {
     public var tooltip: String {
         switch state {
         case .loading where snapshot == nil:
-            return "Consultando el uso de Claude…"
+            return "Consultando el uso de \(provider.displayName)…"
         case .needsReauth:
-            return "Uso de Claude — sesión caducada"
+            return "Uso de \(provider.displayName) — sesión caducada"
         default:
             let parts = gauges.map { "\($0.title) \(UsageFormat.percent($0.percent))" }
-            return parts.isEmpty ? "Uso de Claude" : parts.joined(separator: " · ")
+            let header = "Uso de \(provider.displayName)"
+            return parts.isEmpty ? header : "\(header) — " + parts.joined(separator: " · ")
         }
     }
 }

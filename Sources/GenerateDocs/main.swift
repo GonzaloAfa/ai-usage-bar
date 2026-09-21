@@ -14,15 +14,24 @@ import UsageCore
 private struct StubClient: UsageFetching {
     let json: String
 
-    func fetch() async throws -> UsageResponse {
-        try UsageResponse.decode(Data(json.utf8))
+    func fetch() async throws -> ProviderSnapshot {
+        try UsageResponse.decode(Data(json.utf8)).snapshot
+    }
+}
+
+/// La misma utilería para el otro proveedor: su respuesta cruda decodificada con el código de la app.
+private struct CodexStubClient: UsageFetching {
+    let json: String
+
+    func fetch() async throws -> ProviderSnapshot {
+        try CodexUsageResponse.decode(Data(json.utf8)).snapshot
     }
 }
 
 private struct ErrorClient: UsageFetching {
     let error: any Error
 
-    func fetch() async throws -> UsageResponse { throw error }
+    func fetch() async throws -> ProviderSnapshot { throw error }
 }
 
 private struct Limit {
@@ -105,9 +114,45 @@ private func weeklyModel(_ name: String, _ percent: Double, _ severity: String =
 
 @MainActor
 private func store(_ json: String) async -> UsageStore {
-    let store = UsageStore(client: StubClient(json: json), defaults: freshDefaults())
+    let store = UsageStore(provider: .claude, client: StubClient(json: json), defaults: freshDefaults())
     await store.refreshAndWait()
     return store
+}
+
+@MainActor
+private func codexStore(_ json: String) async -> UsageStore {
+    let store = UsageStore(
+        provider: .codex,
+        client: CodexStubClient(json: json),
+        defaults: freshDefaults()
+    )
+    await store.refreshAndWait()
+    return store
+}
+
+/// La respuesta de Codex para las láminas: dos ventanas y, si se pide, saldo de créditos.
+private func codexJSON(
+    primary: Double,
+    secondary: Double,
+    reset: Date,
+    weekly: Date,
+    limitReached: Bool = false,
+    credits: Double? = nil
+) -> String {
+    let creditsJSON = credits.map {
+        #"{"has_credits":true,"unlimited":false,"overage_limit_reached":false,"balance":"\#($0)"}"#
+    } ?? #"{"has_credits":false,"unlimited":false,"overage_limit_reached":false,"balance":"0"}"#
+
+    return """
+        {"plan_type":"plus",
+         "rate_limit":{"allowed":\(!limitReached),"limit_reached":\(limitReached),
+          "primary_window":{"used_percent":\(primary),"limit_window_seconds":18000,
+           "reset_at":\(reset.timeIntervalSince1970)},
+          "secondary_window":{"used_percent":\(secondary),"limit_window_seconds":604800,
+           "reset_at":\(weekly.timeIntervalSince1970)}},
+         "credits":\(creditsJSON),
+         "spend_control":{"reached":false,"individual_limit":null}}
+        """
 }
 
 private var defaultsCounter = 0
@@ -116,8 +161,8 @@ private var defaultsCounter = 0
 @MainActor
 private func freshDefaults() -> UserDefaults {
     defaultsCounter += 1
-    let defaults = UserDefaults(suiteName: "cl.alisonvivanco.claude-usage-bar.docs.\(defaultsCounter)")!
-    defaults.removePersistentDomain(forName: "cl.alisonvivanco.claude-usage-bar.docs.\(defaultsCounter)")
+    let defaults = UserDefaults(suiteName: "cl.alisonvivanco.ai-usage-bar.docs.\(defaultsCounter)")!
+    defaults.removePersistentDomain(forName: "cl.alisonvivanco.ai-usage-bar.docs.\(defaultsCounter)")
     return defaults
 }
 
@@ -125,14 +170,14 @@ private func freshDefaults() -> UserDefaults {
 @MainActor
 private func degradedStore(json: String, failingWith error: any Error) async -> UsageStore {
     let defaults = freshDefaults()
-    let warm = UsageStore(client: StubClient(json: json), defaults: defaults)
+    let warm = UsageStore(provider: .claude, client: StubClient(json: json), defaults: defaults)
     await warm.refreshAndWait()
 
     // Envejecer la fecha del caché: si no, la lámina diría «Actualizado justo ahora» al lado de un
     // aviso de sesión caducada, que se contradice. La clave es la que usa UsageStore internamente.
-    defaults.set(Date().addingTimeInterval(-6 * 60), forKey: "cachedUsageResponseDate")
+    defaults.set(Date().addingTimeInterval(-6 * 60), forKey: "cachedUsageDate.claude")
 
-    let degraded = UsageStore(client: ErrorClient(error: error), defaults: defaults)
+    let degraded = UsageStore(provider: .claude, client: ErrorClient(error: error), defaults: defaults)
     await degraded.refreshAndWait()
     return degraded
 }
@@ -526,7 +571,11 @@ try write(
 )
 
 // 4 · Cuando algo falla
-let loadingStore = UsageStore(client: ErrorClient(error: UsageError.transport("sin red")), defaults: freshDefaults())
+let loadingStore = UsageStore(
+    provider: .claude,
+    client: ErrorClient(error: UsageError.transport("sin red")),
+    defaults: freshDefaults()
+)
 
 try write(
     sheet(
@@ -572,3 +621,112 @@ try write(
 )
 
 print("Listo.")
+
+// 5 · Los dos proveedores en la barra
+
+/// Una franja de barra de menú con los dos ítems, uno al lado del otro.
+///
+/// Es la lámina que explica por qué van separados: cada símbolo lleva su propio color, así que un
+/// Codex al tope se ve rojo sin arrastrar al indicador de Claude, que puede estar holgado.
+@MainActor
+private func providerStripSheet() -> NSImage {
+    let entries: [(Provider, StatusItemState)] = [
+        (.claude, .level(percent: 39, severity: .normal)),
+        (.codex, .level(percent: 100, severity: .critical)),
+    ]
+
+    let factor: CGFloat = 2
+    let padding: CGFloat = 20 * factor
+    let stripWidth: CGFloat = 200 * factor
+    let stripHeight: CGFloat = 30 * factor
+    let headerHeight: CGFloat = 16 * factor
+    let width = padding * 2 + stripWidth
+    // El gap sólo va entre las dos franjas, no debajo de la última.
+    let height = padding * 2 + (headerHeight + stripHeight) * 2 + 14 * factor
+
+    let canvas = NSImage(size: NSSize(width: width, height: height))
+    canvas.lockFocus()
+    sheetBackground.setFill()
+    NSRect(origin: .zero, size: canvas.size).fill()
+
+    for (row, isDark) in [(0, false), (1, true)] {
+        let top = height - padding - CGFloat(row) * (headerHeight + stripHeight + 14 * factor)
+
+        attributed(
+            isDark ? "Barra oscura" : "Barra clara",
+            size: 7 * factor, weight: .medium, color: NSColor(white: 1, alpha: 0.4)
+        ).draw(at: NSPoint(x: padding, y: top - 10 * factor))
+
+        let stripRect = NSRect(
+            x: padding, y: top - headerHeight - stripHeight,
+            width: stripWidth, height: stripHeight
+        )
+        (isDark ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.925, alpha: 1)).setFill()
+        NSBezierPath(roundedRect: stripRect, xRadius: 5 * factor, yRadius: 5 * factor).fill()
+
+        let ink: NSColor = isDark ? .white : .black
+        var x = stripRect.minX + 16 * factor
+        for (provider, state) in entries {
+            let image = StatusItemRenderer.image(for: state, provider: provider)
+            let drawable = image.isTemplate ? image.tinted(with: ink) : image
+            let side = 13 * factor
+            drawable.draw(
+                in: NSRect(x: x, y: stripRect.midY - side / 2, width: side, height: side)
+            )
+            x += side + 4 * factor
+
+            let title = NSMutableAttributedString(attributedString: StatusItemRenderer.title(for: state))
+            title.addAttributes(
+                [
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 9 * factor, weight: .regular),
+                    .foregroundColor: state.severity == .normal ? ink : state.severity.menuBarTint,
+                ],
+                range: NSRange(location: 0, length: title.length)
+            )
+            title.draw(at: NSPoint(x: x, y: stripRect.midY - 7 * factor))
+            x += title.size().width + 22 * factor
+        }
+    }
+    canvas.unlockFocus()
+    return canvas
+}
+
+try write(providerStripSheet(), to: outputDirectory, named: "barra-dos-proveedores.png")
+
+// 6 · El popover de Codex
+let codexReset = now.addingTimeInterval(1 * 3600 + 12 * 60)
+
+try write(
+    sheet(
+        cells: [
+            Cell(
+                title: "Codex con margen",
+                note: "Las mismas dos ventanas que muestra /status: la sesión de 5 h y el límite semanal.",
+                image: renderPopover(
+                    await codexStore(
+                        codexJSON(primary: 32, secondary: 25, reset: codexReset, weekly: weeklyReset)
+                    )
+                )
+            ),
+            Cell(
+                title: "Codex al tope",
+                note: "Al quedarse sin mensajes la sesión se marca en rojo y aparece el saldo de créditos, que es lo que permite seguir.",
+                image: renderPopover(
+                    await codexStore(
+                        codexJSON(
+                            primary: 100,
+                            secondary: 25,
+                            reset: codexReset,
+                            weekly: weeklyReset,
+                            limitReached: true,
+                            credits: 12.5
+                        )
+                    )
+                )
+            ),
+        ],
+        columns: 2
+    ),
+    to: outputDirectory,
+    named: "popover-codex.png"
+)

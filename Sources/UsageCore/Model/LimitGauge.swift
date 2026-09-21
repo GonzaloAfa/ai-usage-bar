@@ -2,7 +2,7 @@ import Foundation
 
 /// Gravedad de un límite. La API ya manda un `severity`, pero lo cruzamos con el porcentaje para no
 /// depender de que su umbral coincida con lo que queremos mostrar.
-public enum Severity: String, Sendable, Comparable, CaseIterable {
+public enum Severity: String, Codable, Sendable, Comparable, CaseIterable {
     case normal
     case warning
     case critical
@@ -17,7 +17,7 @@ public enum Severity: String, Sendable, Comparable, CaseIterable {
     }
 
     /// Lo que dice la API, cuando lo entendemos.
-    static func fromAPI(_ raw: String?) -> Severity? {
+    public static func fromAPI(_ raw: String?) -> Severity? {
         switch raw?.lowercased() {
         case "normal", "ok": return .normal
         case "warning", "warn": return .warning
@@ -38,11 +38,25 @@ public enum Severity: String, Sendable, Comparable, CaseIterable {
 }
 
 /// Una fila del popover: un límite listo para dibujar, sin rastros de la forma de la API.
-public struct LimitGauge: Identifiable, Sendable, Equatable {
-    public enum Group: Sendable, Equatable {
+public struct LimitGauge: Identifiable, Codable, Sendable, Equatable {
+    public enum Group: String, Codable, Sendable, Equatable {
         case session
         case weekly
         case other
+
+        /// A qué grupo pertenece una ventana según cuánto dura.
+        ///
+        /// Se clasifica por duración y no por el nombre que le ponga cada API: Anthropic habla de
+        /// `five_hour`/`seven_day` y OpenAI de `primary`/`secondary`, pero una ventana de cinco
+        /// horas es la sesión en los dos.
+        public static func forWindow(seconds: TimeInterval) -> Group {
+            switch seconds {
+            case ..<0: return .other
+            case ...(6 * 3600): return .session
+            case ...(8 * 24 * 3600): return .weekly
+            default: return .other
+            }
+        }
     }
 
     public var id: String
@@ -69,101 +83,19 @@ public struct LimitGauge: Identifiable, Sendable, Equatable {
     }
 }
 
-// MARK: - Normalización desde la API
-
-extension UsageResponse {
-    /// Los límites listos para la interfaz: sesión primero, luego los semanales en el orden en que
-    /// llegaron.
-    ///
-    /// Se construye sobre `limits[]` porque ya viene agrupado y con el nombre del modelo acotado
-    /// (de ahí sale la fila «Fable»). `five_hour`/`seven_day` quedan sólo como respaldo por si esa
-    /// lista llega vacía en alguna versión del endpoint.
-    public var gauges: [LimitGauge] {
-        let fromLimits = (limits ?? []).compactMap(Self.gauge(from:))
-        let result = fromLimits.isEmpty ? fallbackGauges : fromLimits
-        return result.sorted { lhs, rhs in
-            Self.groupOrder(lhs.group) < Self.groupOrder(rhs.group)
-        }
+extension LimitGauge {
+    /// `monthly_experimental` → `Monthly experimental`: sólo la inicial en mayúscula, como en español.
+    static func humanize(_ kind: String) -> String {
+        let spaced = kind.replacingOccurrences(of: "_", with: " ")
+        return spaced.prefix(1).uppercased() + spaced.dropFirst()
     }
 
-    /// El límite que manda: el de mayor consumo, sin importar de qué ventana venga. Es el que gobierna
-    /// el ícono de la barra de menú, porque es el que va a frenar el trabajo primero.
-    public var criticalGauge: LimitGauge? {
-        gauges.max { $0.percent < $1.percent }
-    }
-
-    private static func groupOrder(_ group: LimitGauge.Group) -> Int {
+    /// El orden en que se dibujan: la sesión primero, porque es la que frena el trabajo hoy.
+    static func groupOrder(_ group: Group) -> Int {
         switch group {
         case .session: return 0
         case .weekly: return 1
         case .other: return 2
         }
-    }
-
-    /// `monthly_experimental` → `Monthly experimental`: sólo la inicial en mayúscula, como en español.
-    private static func humanize(_ kind: String) -> String {
-        let spaced = kind.replacingOccurrences(of: "_", with: " ")
-        return spaced.prefix(1).uppercased() + spaced.dropFirst()
-    }
-
-    private static func gauge(from limit: Limit) -> LimitGauge? {
-        guard let percent = limit.percent else { return nil }
-        let scopedName = limit.scope?.model?.displayName
-
-        let title: String
-        switch limit.kind {
-        case "session": title = "Sesión actual"
-        case "weekly_all": title = "Todos los modelos"
-        case "weekly_scoped": title = scopedName ?? "Modelo específico"
-        default:
-            // Un `kind` nuevo se muestra legible en vez de descartarse: preferimos enseñar un límite
-            // con nombre feo antes que ocultarle al usuario que existe.
-            title = scopedName ?? limit.kind.map(Self.humanize) ?? "Límite"
-        }
-
-        let group: LimitGauge.Group
-        switch limit.group ?? limit.kind {
-        case "session": group = .session
-        case "weekly", "weekly_all", "weekly_scoped": group = .weekly
-        default: group = .other
-        }
-
-        return LimitGauge(
-            id: [limit.kind, limit.group, scopedName].compactMap { $0 }.joined(separator: "."),
-            title: title,
-            group: group,
-            percent: percent,
-            severity: max(Severity.fromAPI(limit.severity) ?? .normal, .derived(fromPercent: percent)),
-            resetsAt: limit.resetsAt
-        )
-    }
-
-    private var fallbackGauges: [LimitGauge] {
-        var gauges: [LimitGauge] = []
-        if let fiveHour, let percent = fiveHour.utilization {
-            gauges.append(
-                LimitGauge(
-                    id: "five_hour",
-                    title: "Sesión actual",
-                    group: .session,
-                    percent: percent,
-                    severity: .derived(fromPercent: percent),
-                    resetsAt: fiveHour.resetsAt
-                )
-            )
-        }
-        if let sevenDay, let percent = sevenDay.utilization {
-            gauges.append(
-                LimitGauge(
-                    id: "seven_day",
-                    title: "Todos los modelos",
-                    group: .weekly,
-                    percent: percent,
-                    severity: .derived(fromPercent: percent),
-                    resetsAt: sevenDay.resetsAt
-                )
-            )
-        }
-        return gauges
     }
 }

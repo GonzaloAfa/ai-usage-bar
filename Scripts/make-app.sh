@@ -7,8 +7,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-APP_NAME="ClaudeUsageBar"
-BUNDLE_ID="cl.alisonvivanco.claude-usage-bar"
+APP_NAME="AIUsageBar"
+BUNDLE_ID="cl.alisonvivanco.ai-usage-bar"
 VERSION="${VERSION:-1.0}"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
@@ -28,9 +28,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Claude Usage Bar</string>
+	<string>AI Usage Bar</string>
 	<key>CFBundleDisplayName</key>
-	<string>Claude Usage Bar</string>
+	<string>AI Usage Bar</string>
 	<key>CFBundleExecutable</key>
 	<string>$APP_NAME</string>
 	<key>CFBundleIdentifier</key>

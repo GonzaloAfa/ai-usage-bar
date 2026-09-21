@@ -1,0 +1,12 @@
+{
+  "plan_type": null,
+  "rate_limit": {
+    "primary_window": { "used_percent": 7, "limit_window_seconds": 18000 },
+    "secondary_window": null
+  },
+  "code_review_rate_limit": null,
+  "additional_rate_limits": null,
+  "credits": null,
+  "spend_control": null,
+  "campo_que_no_existia": { "cualquier": "cosa" }
+}

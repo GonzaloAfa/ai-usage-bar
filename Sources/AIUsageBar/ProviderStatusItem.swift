@@ -3,59 +3,57 @@ import ServiceManagement
 import SwiftUI
 import UsageCore
 
+/// Un ítem de la barra de menú: el de Claude o el de Codex.
+///
+/// Cada proveedor tiene el suyo, con su propio store y su propio popover. Van separados y no en un
+/// solo ítem con dos cifras porque así cada uno conserva el color de su estado: un Codex al tope no
+/// debe teñir de rojo el indicador de Claude, que puede estar holgado.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let store = UsageStore()
-    private var statusItem: NSStatusItem?
+final class ProviderStatusItem {
+    let store: UsageStore
+
+    private let provider: Provider
+    private let onQuit: () -> Void
+    private let statusItem: NSStatusItem
     private var popover: NSPopover?
     private var appearanceObservation: NSKeyValueObservation?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        // La estrella a la izquierda y el porcentaje a su derecha, con el espaciado del sistema.
+    init(provider: Provider, onQuit: @escaping () -> Void) {
+        self.provider = provider
+        self.onQuit = onQuit
+        self.store = UsageStore(provider: provider)
+        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        // El símbolo a la izquierda y el porcentaje a su derecha, con el espaciado del sistema.
         statusItem.button?.imagePosition = .imageLeading
         statusItem.button?.target = self
         statusItem.button?.action = #selector(handleClick)
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        self.statusItem = statusItem
 
-        store.onChange = { [weak self] in self?.updateStatusItem() }
-        updateStatusItem()
+        store.onChange = { [weak self] in self?.update() }
+        update()
         store.start()
-
-        // Al volver de suspensión los datos siempre están viejos: la sesión de 5 h pudo reiniciarse
-        // mientras el Mac dormía.
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.store.refresh() }
-        }
 
         // El ícono coloreado no es plantilla, así que hay que redibujarlo cuando la barra cambia de
         // claro a oscuro.
         appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.updateStatusItem() }
-        }
-
-        // Abre el popover al arrancar para poder revisarlo con una captura de pantalla.
-        if ProcessInfo.processInfo.environment["CLAUDE_USAGE_BAR_AUTO_OPEN"] == "1" {
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(700))
-                self.togglePopover()
-            }
+            MainActor.assumeIsolated { self?.update() }
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func stop() {
         store.stop()
+        NSStatusBar.system.removeStatusItem(statusItem)
+    }
+
+    func refresh() {
+        store.refresh()
     }
 
     // MARK: Barra de menú
 
-    private func updateStatusItem() {
-        guard let button = statusItem?.button else { return }
+    private func update() {
+        guard let button = statusItem.button else { return }
 
         let needsReauth = store.state == .needsReauth
         let isFailed = if case .failed = store.state { store.snapshot == nil } else { false }
@@ -65,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             needsReauth: needsReauth
         )
 
-        button.image = StatusItemRenderer.image(for: state)
+        button.image = StatusItemRenderer.image(for: state, provider: provider)
         button.attributedTitle = StatusItemRenderer.title(for: state)
         button.toolTip = store.tooltip
         // Los datos servidos desde la caché se ven apagados hasta que la API confirma.
@@ -82,8 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Popover
 
-    private func togglePopover() {
-        guard let button = statusItem?.button else { return }
+    func togglePopover() {
+        guard let button = statusItem.button else { return }
 
         if let popover, popover.isShown {
             popover.performClose(nil)
@@ -104,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = NSHostingController(
-            rootView: UsagePopoverView(store: store) { NSApp.terminate(nil) }
+            rootView: UsagePopoverView(store: store, onQuit: onQuit)
         )
         return popover
     }
@@ -112,8 +110,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Menú contextual
 
     private func showContextMenu() {
-        guard let statusItem else { return }
-
         let menu = NSMenu()
         menu.addItem(withTitle: store.tooltip, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
@@ -122,7 +118,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh.target = self
         menu.addItem(refresh)
 
-        let open = NSMenuItem(title: "Abrir en claude.ai", action: #selector(openWebUsage), keyEquivalent: "")
+        let open = NSMenuItem(
+            title: "Abrir en \(provider.webUsageLabel)",
+            action: #selector(openWebUsage),
+            keyEquivalent: ""
+        )
         open.target = self
         menu.addItem(open)
 
@@ -153,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openWebUsage() {
-        NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/usage")!)
+        NSWorkspace.shared.open(provider.webUsageURL)
     }
 
     @objc private func toggleLaunchAtLogin() {

@@ -19,10 +19,7 @@ public struct UsagePopoverView: View {
             header
 
             if case .needsReauth = store.state {
-                notice(
-                    "La sesión de Claude Code caducó. Abre `claude` en una terminal para renovarla; el indicador se pondrá al día solo.",
-                    tint: .orange
-                )
+                notice(store.provider.reauthHint, tint: .orange)
             } else if case .failed(let message) = store.state, store.snapshot == nil {
                 notice(message, tint: .red)
             }
@@ -63,8 +60,16 @@ public struct UsagePopoverView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Uso de Claude")
+                Text("Uso de \(store.provider.displayName)")
                     .font(.system(size: 13, weight: .semibold))
+                if let plan = store.snapshot?.planName {
+                    Text(plan.uppercased())
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
+                }
                 Spacer()
                 if let critical = store.criticalGauge {
                     Text(UsageFormat.percent(critical.percent))
@@ -92,17 +97,18 @@ public struct UsagePopoverView: View {
         return "\(gauge.title) · \(phrase.prefix(1).lowercased())\(phrase.dropFirst())"
     }
 
+    /// El gasto fuera del plan: «uso extra» en Claude, créditos en Codex.
     @ViewBuilder
     private var extraUsageSection: some View {
-        if let spend = store.snapshot?.spend, spend.enabled == true {
+        if let spend = store.snapshot?.spend {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Uso extra")
+                    Text(spend.title)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    if let amount = spend.used?.amount {
-                        Text(UsageFormat.money(amount, currency: spend.used?.currency))
+                    if let amount = spend.amount {
+                        Text(UsageFormat.money(amount, currency: spend.currency))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -111,8 +117,13 @@ public struct UsagePopoverView: View {
                 if let percent = spend.percent {
                     ProgressBar(
                         percent: percent,
-                        tint: (Severity.fromAPI(spend.severity) ?? .derived(fromPercent: percent)).tint
+                        tint: (spend.severity ?? .derived(fromPercent: percent)).tint
                     )
+                }
+                if let detail = spend.detail {
+                    Text(detail)
+                        .font(.system(size: 10))
+                        .foregroundStyle((spend.severity ?? .normal) == .critical ? .red : .secondary)
                 }
             }
         }
@@ -139,8 +150,8 @@ public struct UsagePopoverView: View {
 
                 footerButton("Actualizar") { store.refresh() }
                 separator
-                footerButton("claude.ai") {
-                    NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/usage")!)
+                footerButton(store.provider.webUsageLabel) {
+                    NSWorkspace.shared.open(store.provider.webUsageURL)
                 }
                 separator
                 footerButton("Salir", action: onQuit)

@@ -25,18 +25,18 @@ public enum StatusItemState: Equatable {
     }
 }
 
-/// Compone lo que se ve en la barra de menú: la estrella de IA y, al lado, el porcentaje.
+/// Compone lo que se ve en la barra de menú: el símbolo del proveedor y, al lado, el porcentaje.
 ///
-/// El número se lee de un vistazo, sin tener que interpretar cuánto ocupa un dibujo, y la estrella
-/// evita que el indicador se confunda con la batería del sistema, que vive a pocos íconos de distancia.
+/// El número se lee de un vistazo, sin tener que interpretar cuánto ocupa un dibujo, y el símbolo
+/// hace dos cosas: distingue a Claude de Codex cuando los dos ítems están en la barra, y evita que
+/// el indicador se confunda con la batería del sistema, que vive a pocos íconos de distancia.
 public enum StatusItemRenderer {
-    /// La estrella de cuatro puntas que el sistema ya usa para lo relacionado con IA.
-    public static func image(for state: StatusItemState) -> NSImage {
+    public static func image(for state: StatusItemState, provider: Provider = .claude) -> NSImage {
         let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         let image = NSImage(
-            systemSymbolName: "sparkle",
-            accessibilityDescription: accessibilityDescription(for: state)
-        )?.withSymbolConfiguration(configuration) ?? fallbackImage(for: state)
+            systemSymbolName: provider.symbolName,
+            accessibilityDescription: accessibilityDescription(for: state, provider: provider)
+        )?.withSymbolConfiguration(configuration) ?? fallbackImage(for: state, provider: provider)
 
         // En estado normal es plantilla y la barra de menú la colorea sola, adaptándose a claro y
         // oscuro. Al avisar el color es parte del mensaje, así que se pinta explícitamente.
@@ -68,18 +68,22 @@ public enum StatusItemRenderer {
         )
     }
 
-    public static func accessibilityDescription(for state: StatusItemState) -> String {
+    public static func accessibilityDescription(
+        for state: StatusItemState,
+        provider: Provider = .claude
+    ) -> String {
+        let name = provider.displayName
         switch state {
-        case .level(let percent, _): return "Uso de Claude: \(UsageFormat.percent(percent))"
-        case .loading: return "Consultando el uso de Claude"
-        case .error: return "Error al consultar el uso de Claude"
+        case .level(let percent, _): return "Uso de \(name): \(UsageFormat.percent(percent))"
+        case .loading: return "Consultando el uso de \(name)"
+        case .error: return "Error al consultar el uso de \(name)"
         }
     }
 
-    /// Si el símbolo del sistema no estuviera disponible, un asterisco cumple el mismo papel.
-    private static func fallbackImage(for state: StatusItemState) -> NSImage {
+    /// Si el símbolo del sistema no estuviera disponible, el glifo del proveedor cumple el mismo papel.
+    private static func fallbackImage(for state: StatusItemState, provider: Provider) -> NSImage {
         let glyph = NSAttributedString(
-            string: "✳",
+            string: provider.fallbackGlyph,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 13, weight: .medium),
                 .foregroundColor: NSColor.labelColor,

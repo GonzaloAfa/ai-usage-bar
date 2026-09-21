@@ -10,7 +10,7 @@
 #        security find-identity -v -p codesigning | grep "Developer ID Application"
 #
 #   2. Un perfil de notarización guardado una sola vez:
-#        xcrun notarytool store-credentials "claude-usage-bar" \
+#        xcrun notarytool store-credentials "ai-usage-bar" \
 #          --apple-id <correo de la cuenta> --team-id <TEAMID> --password <app-specific password>
 #      La contraseña específica se crea en appleid.apple.com, no es la del Apple ID.
 #
@@ -20,10 +20,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-APP_NAME="ClaudeUsageBar"
-VOLUME_NAME="Claude Usage Bar"
+APP_NAME="AIUsageBar"
+VOLUME_NAME="AI Usage Bar"
 VERSION="${1:-1.0}"
-NOTARY_PROFILE="${NOTARY_PROFILE:-claude-usage-bar}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-ai-usage-bar}"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
 STAGE="$BUILD_DIR/dmg"

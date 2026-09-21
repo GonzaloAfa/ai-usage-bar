@@ -1,13 +1,18 @@
 import Foundation
 
-/// El token OAuth de Claude Code, tal como lo guarda el propio CLI.
+/// El token OAuth de una sesión ya iniciada, tal como lo dejó el CLI o la app del proveedor.
 public struct OAuthCredentials: Sendable {
     public let accessToken: String
     public let expiresAt: Date?
 
-    public init(accessToken: String, expiresAt: Date?) {
+    /// La cuenta a la que pertenece el token, cuando el proveedor la exige aparte del token.
+    /// Claude no la usa; Codex la manda en el encabezado `chatgpt-account-id`.
+    public let accountId: String?
+
+    public init(accessToken: String, expiresAt: Date?, accountId: String? = nil) {
         self.accessToken = accessToken
         self.expiresAt = expiresAt
+        self.accountId = accountId
     }
 
     public func isExpired(now: Date = Date()) -> Bool {
@@ -20,21 +25,30 @@ public enum TokenError: LocalizedError, Equatable {
     case notFound
     case keychainDenied
     case malformed
+    case unsupportedAuthMode
 
     public var errorDescription: String? {
         switch self {
         case .notFound:
-            return "No se encontró la sesión de Claude Code. Inicia sesión con `claude` una vez."
+            return "No se encontró una sesión iniciada."
         case .keychainDenied:
             return "macOS no autorizó la lectura del llavero. Vuelve a intentarlo y elige «Permitir siempre»."
         case .malformed:
-            return "Las credenciales del llavero no tienen el formato esperado."
+            return "Las credenciales guardadas no tienen el formato esperado."
+        case .unsupportedAuthMode:
+            return "La cuenta usa una clave de API; el uso sólo se consulta con sesión de ChatGPT."
         }
     }
 }
 
 public protocol TokenProviding: Sendable {
     func currentCredentials() throws -> OAuthCredentials
+
+    /// Si hay una sesión que consultar, sin llegar a leer el token.
+    ///
+    /// Decide si el proveedor aparece en la barra de menú, así que tiene que ser barato y no pedirle
+    /// nada al usuario: quien sólo usa Claude no debería ver un ítem de Codex en error permanente.
+    func hasSession() -> Bool
 }
 
 /// Lee las credenciales del item `Claude Code-credentials` del llavero de inicio de sesión.
@@ -47,10 +61,10 @@ public protocol TokenProviding: Sendable {
 /// Claude Code lo renueva por su cuenta en el llavero, así que releerlo es lo que mantiene la app al día.
 public struct KeychainTokenSource: TokenProviding {
     /// Sobrescribe la lectura del llavero durante el desarrollo.
-    public static let tokenEnvironmentKey = "CLAUDE_USAGE_BAR_TOKEN"
+    public static let tokenEnvironmentKey = "AI_USAGE_BAR_TOKEN_CLAUDE"
 
-    private let service: String
-    private let securityPath: String
+    let service: String
+    let securityPath: String
 
     public init(
         service: String = "Claude Code-credentials",
@@ -113,5 +127,30 @@ public struct KeychainTokenSource: TokenProviding {
             Date(timeIntervalSince1970: $0 / 1000)
         }
         return OAuthCredentials(accessToken: token, expiresAt: expiresAt)
+    }
+}
+
+extension KeychainTokenSource {
+    /// Pregunta por el item sin `-w`: eso devuelve sólo los metadatos y no dispara el diálogo de
+    /// autorización del llavero, que es lo que hace `-w` al pedir la contraseña.
+    public func hasSession() -> Bool {
+        if let override = ProcessInfo.processInfo.environment[Self.tokenEnvironmentKey],
+           !override.isEmpty {
+            return true
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: securityPath)
+        process.arguments = ["find-generic-password", "-s", service]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 }

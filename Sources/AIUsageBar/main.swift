@@ -1,7 +1,7 @@
 import AppKit
 
 // Modo diagnóstico: consulta una vez, imprime y termina, sin tocar la barra de menú.
-if ProcessInfo.processInfo.environment["CLAUDE_USAGE_BAR_PRINT"] == "1" {
+if ProcessInfo.processInfo.environment["AI_USAGE_BAR_PRINT"] == "1" {
     exit(await printUsageSummary())
 }
 
