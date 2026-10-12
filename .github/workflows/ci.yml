@@ -1,0 +1,16 @@
+# Compila y corre las pruebas en cada PR y en cada push a main, con Xcode y Swift 6.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - run: swift build
+      - run: swift test

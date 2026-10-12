@@ -13,9 +13,13 @@ VERSION="${VERSION:-1.0}"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
 
-echo "==> Compilando en release"
-swift build -c release --product "$APP_NAME"
-BINARY="$(swift build -c release --product "$APP_NAME" --show-bin-path)/$APP_NAME"
+# ARCHS="arm64 x86_64" compila un binario universal; sin definirlo, sólo la arquitectura de esta máquina.
+ARCH_FLAGS=()
+for arch in ${ARCHS:-}; do ARCH_FLAGS+=(--arch "$arch"); done
+
+echo "==> Compilando en release${ARCHS:+ ($ARCHS)}"
+swift build -c release --product "$APP_NAME" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
+BINARY="$(swift build -c release --product "$APP_NAME" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)/$APP_NAME"
 
 echo "==> Armando $APP"
 rm -rf "$APP"

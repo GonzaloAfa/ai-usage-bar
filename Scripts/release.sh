@@ -14,8 +14,13 @@
 #          --apple-id <correo de la cuenta> --team-id <TEAMID> --password <app-specific password>
 #      La contraseña específica se crea en appleid.apple.com, no es la del Apple ID.
 #
+#      En CI se usa en su lugar una clave de API de App Store Connect, por variables de entorno:
+#        NOTARY_KEY_PATH (archivo .p8), NOTARY_KEY_ID y NOTARY_ISSUER_ID
+#
 #   Uso:  Scripts/release.sh [versión]
 #   Perfil distinto:  NOTARY_PROFILE=otro-perfil Scripts/release.sh 1.1
+#
+# El binario sale universal (Apple Silicon e Intel); ARCHS="arm64" lo limita a una arquitectura.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,6 +33,14 @@ BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
 STAGE="$BUILD_DIR/dmg"
 DMG="$BUILD_DIR/$APP_NAME-$VERSION.dmg"
+ARCHS="${ARCHS:-arm64 x86_64}"
+
+if [ -n "${NOTARY_KEY_PATH:-}" ]; then
+	NOTARY_AUTH=(--key "$NOTARY_KEY_PATH" --key-id "${NOTARY_KEY_ID:?falta NOTARY_KEY_ID}" \
+		--issuer "${NOTARY_ISSUER_ID:?falta NOTARY_ISSUER_ID}")
+else
+	NOTARY_AUTH=(--keychain-profile "$NOTARY_PROFILE")
+fi
 
 # ---------------------------------------------------------------- comprobaciones
 
@@ -55,9 +68,10 @@ MESSAGE
 	exit 1
 fi
 
-if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+if ! xcrun notarytool history "${NOTARY_AUTH[@]}" >/dev/null 2>&1; then
 	cat <<MESSAGE >&2
-No hay credenciales de notarización guardadas bajo el perfil «$NOTARY_PROFILE».
+Las credenciales de notarización no sirven: ni el perfil «$NOTARY_PROFILE» ni la clave de API
+(NOTARY_KEY_PATH, NOTARY_KEY_ID, NOTARY_ISSUER_ID) dejan consultar a Apple.
 
 Se guardan una sola vez con:
 
@@ -72,7 +86,7 @@ fi
 # ---------------------------------------------------------------- empaquetado
 
 echo "==> Versión $VERSION, firmando como: $SIGN_IDENTITY"
-VERSION="$VERSION" SIGN_IDENTITY="$SIGN_IDENTITY" Scripts/make-app.sh
+VERSION="$VERSION" SIGN_IDENTITY="$SIGN_IDENTITY" ARCHS="$ARCHS" Scripts/make-app.sh
 
 echo "==> Armando el DMG"
 rm -rf "$STAGE" "$DMG"
@@ -93,7 +107,7 @@ codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DMG"
 # ---------------------------------------------------------------- notarización
 
 echo "==> Enviando a notarizar (Apple tarda entre uno y unos pocos minutos)"
-xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+xcrun notarytool submit "$DMG" "${NOTARY_AUTH[@]}" --wait
 
 # Grapar el resultado deja la aprobación dentro del archivo, para que valga sin consultar a Apple.
 echo "==> Grapando el resultado"
