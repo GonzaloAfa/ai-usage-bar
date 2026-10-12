@@ -1,0 +1,69 @@
+# Publica un DMG firmado y notarizado al empujar una etiqueta de versión:
+#
+#   git tag v1.1 && git push origin v1.1
+#
+# Secretos del repositorio (Settings → Secrets and variables → Actions):
+#   DEVELOPER_ID_P12           certificado «Developer ID Application» con su clave, en .p12 y base64
+#   DEVELOPER_ID_P12_PASSWORD  contraseña con la que se exportó el .p12
+#   NOTARY_KEY_P8              clave de API de App Store Connect (.p8), en base64
+#   NOTARY_KEY_ID              Key ID de esa clave
+#   NOTARY_ISSUER_ID           Issuer ID de la cuenta en App Store Connect
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pruebas
+        run: swift test
+
+      - name: Importar el certificado en un llavero temporal
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign -f pkcs12
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/developer-id.p12"
+
+      - name: Firmar, empaquetar y notarizar
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          export NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8"
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$NOTARY_KEY_PATH"
+          Scripts/release.sh "${GITHUB_REF_NAME#v}"
+          rm "$NOTARY_KEY_PATH"
+
+      # Se publica con un nombre fijo para que
+      # releases/latest/download/AIUsageBar.dmg apunte siempre a la última versión.
+      - name: Publicar en GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp "build/AIUsageBar-${GITHUB_REF_NAME#v}.dmg" build/AIUsageBar.dmg
+          gh release create "$GITHUB_REF_NAME" build/AIUsageBar.dmg \
+            --title "AI Usage Bar ${GITHUB_REF_NAME#v}" --generate-notes
+
+      - name: Borrar el llavero temporal
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true

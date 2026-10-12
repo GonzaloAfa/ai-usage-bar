@@ -25,6 +25,12 @@ reiniciar la app.
 
 ## Instalación
 
+**[Descargar AIUsageBar.dmg](https://github.com/GonzaloAfa/ai-usage-bar/releases/latest/download/AIUsageBar.dmg)**
+— firmado y notarizado, para Apple Silicon e Intel. Se abre el DMG, se arrastra la app a Aplicaciones
+y listo.
+
+Para compilarla desde el código:
+
 ```bash
 git clone https://github.com/GonzaloAfa/ai-usage-bar.git
 cd ai-usage-bar
@@ -267,6 +273,29 @@ Antes de la primera vez, en la máquina que tenga la cuenta:
    ```
 
    La contraseña específica de app se genera en appleid.apple.com; no es la del Apple ID.
+
+### Publicar una versión desde GitHub
+
+`.github/workflows/release.yml` hace lo mismo que `Scripts/release.sh` en un Mac de GitHub Actions y
+sube el DMG a *Releases*. Basta con empujar una etiqueta:
+
+```bash
+git tag v1.1 && git push origin v1.1
+```
+
+Corre las pruebas, compila universal, firma, notariza, grapa y publica `AIUsageBar.dmg`, que es el
+archivo al que apunta el enlace de descarga de arriba. Antes de la primera vez hay que cargar cinco
+secretos en *Settings → Secrets and variables → Actions*:
+
+| Secreto | Qué es | De dónde sale |
+| --- | --- | --- |
+| `DEVELOPER_ID_P12` | el certificado *Developer ID Application* con su clave privada, en base64 | Acceso a Llaveros → clic derecho en el certificado → *Exportar* como .p12; luego `base64 -i cert.p12 \| pbcopy` |
+| `DEVELOPER_ID_P12_PASSWORD` | la contraseña elegida al exportar | — |
+| `NOTARY_KEY_P8` | clave de API de App Store Connect, en base64 | appstoreconnect.apple.com → *Users and Access* → *Integrations* → *App Store Connect API* → nueva clave con rol *Developer*; `base64 -i AuthKey_XXXX.p8 \| pbcopy` |
+| `NOTARY_KEY_ID` | el *Key ID* de esa clave | la misma página |
+| `NOTARY_ISSUER_ID` | el *Issuer ID* de la cuenta | la misma página, arriba de la lista |
+
+La clave .p8 se descarga una sola vez; si se pierde, se revoca y se crea otra.
 
 ### Inicio automático
 
