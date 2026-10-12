@@ -18,8 +18,8 @@ reiniciar la app.
 
 ## Requisitos
 
-- macOS 14 o posterior (probado en 15.6)
-- Xcode o la toolchain de Swift 6
+- macOS 13 o posterior (probado en 13.7 y 15.6)
+- Xcode o las Command Line Tools, con Swift 5.8 o posterior
 - Claude Code con sesión iniciada (haber ejecutado `claude` al menos una vez), Codex con sesión de
   ChatGPT iniciada, o ambos
 
@@ -32,6 +32,11 @@ Scripts/make-app.sh
 cp -R build/AIUsageBar.app /Applications/
 open /Applications/AIUsageBar.app
 ```
+
+En macOS 13 con las Command Line Tools 14.x, SwiftPM falla al arrancar con `unable to lookup item
+'PlatformPath'`. Ahí se empaqueta con `Scripts/make-app-swiftc.sh`, que compila con `swiftc` sin pasar
+por SwiftPM y deja la misma `build/AIUsageBar.app`. Esas herramientas no traen XCTest, así que
+`swift test` tampoco corre: hace falta Xcode.
 
 Clic izquierdo abre el popover de ese proveedor; clic derecho abre su menú con *Actualizar ahora*,
 *Abrir en claude.ai* o *Abrir en chatgpt.com*, *Iniciar al abrir sesión* y *Salir*.

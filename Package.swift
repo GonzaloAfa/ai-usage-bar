@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "AIUsageBar",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v13)],
     targets: [
         // Toda la lógica vive aquí para que sea testeable; el ejecutable sólo arranca AppKit.
         .target(name: "UsageCore"),

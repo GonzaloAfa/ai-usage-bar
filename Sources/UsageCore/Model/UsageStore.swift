@@ -1,13 +1,12 @@
+import Combine
 import Foundation
-import Observation
 
 /// Estado de los datos de uso y su ciclo de refresco.
 ///
 /// Vive en el hilo principal porque su única razón de existir es alimentar la barra de menú y el
 /// popover.
 @MainActor
-@Observable
-public final class UsageStore {
+public final class UsageStore: ObservableObject {
     public enum State: Equatable {
         case loading
         case ready
@@ -18,16 +17,16 @@ public final class UsageStore {
     /// De quién es el consumo que muestra este store.
     public let provider: Provider
 
-    public private(set) var state: State = .loading
-    public private(set) var snapshot: ProviderSnapshot?
-    public private(set) var gauges: [LimitGauge] = []
-    public private(set) var lastUpdated: Date?
+    @Published public private(set) var state: State = .loading
+    @Published public private(set) var snapshot: ProviderSnapshot?
+    @Published public private(set) var gauges: [LimitGauge] = []
+    @Published public private(set) var lastUpdated: Date?
 
     /// Los datos vienen de la caché de un arranque anterior y todavía no se confirman contra la API.
-    public private(set) var isStale = false
+    @Published public private(set) var isStale = false
 
-    /// Se llama tras cada cambio para que AppKit redibuje el ícono; `@Observable` sólo alcanza a SwiftUI.
-    @ObservationIgnored public var onChange: (@MainActor () -> Void)?
+    /// Se llama tras cada cambio para que AppKit redibuje el ícono; `@Published` sólo alcanza a SwiftUI.
+    public var onChange: (@MainActor () -> Void)?
 
     private let client: any UsageFetching
     private let defaults: UserDefaults
@@ -148,7 +147,7 @@ public final class UsageStore {
     private func scheduleTimer(after interval: TimeInterval) {
         timer?.invalidate()
         let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor [weak self] in self?.refresh() }
         }
         // Holgura generosa: el sistema agrupa despertares y esto es un indicador, no un cronómetro.
         timer.tolerance = min(10, interval / 4)

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// El desglose completo que se abre al hacer clic en el ícono.
 public struct UsagePopoverView: View {
-    @Bindable private var store: UsageStore
+    @ObservedObject private var store: UsageStore
     private let onQuit: () -> Void
 
     /// Refresca el texto «Actualizado hace N s» y los plazos sin depender de que lleguen datos nuevos.
