@@ -42,7 +42,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundleVersion</key>
 	<string>$VERSION</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>13.0</string>
 	<!-- Sin ícono en el Dock ni conmutador de apps: vive sólo en la barra de menú. -->
 	<key>LSUIElement</key>
 	<true/>

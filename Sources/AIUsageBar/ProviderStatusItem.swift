@@ -37,7 +37,7 @@ final class ProviderStatusItem {
         // El ícono coloreado no es plantilla, así que hay que redibujarlo cuando la barra cambia de
         // claro a oscuro.
         appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.update() }
+            Task { @MainActor [weak self] in self?.update() }
         }
     }
 
@@ -56,7 +56,8 @@ final class ProviderStatusItem {
         guard let button = statusItem.button else { return }
 
         let needsReauth = store.state == .needsReauth
-        let isFailed = if case .failed = store.state { store.snapshot == nil } else { false }
+        let isFailed: Bool
+        if case .failed = store.state { isFailed = store.snapshot == nil } else { isFailed = false }
         let state = StatusItemState(
             gauge: store.criticalGauge,
             isFailed: isFailed,

@@ -12,8 +12,8 @@ actualiza sin dejar restos.
 Comprueba el terreno y **detente si algo falta**, en vez de intentar arreglarlo por tu cuenta:
 
 ```bash
-sw_vers -productVersion          # necesita 14 o posterior
-swift --version                  # necesita la toolchain de Swift 6
+sw_vers -productVersion          # necesita 13 o posterior
+swift --version                  # necesita Swift 5.8 o posterior
 ```
 
 Sin toolchain de Swift no hay nada que hacer: pídele a la persona que instale Xcode o las Command
@@ -49,6 +49,11 @@ Scripts/make-app.sh              # → build/AIUsageBar.app, firmado ad-hoc
 cp -R build/AIUsageBar.app /Applications/
 open /Applications/AIUsageBar.app
 ```
+
+Si `swift test` o `make-app.sh` fallan con `unable to lookup item 'PlatformPath'`, es macOS 13 con
+las Command Line Tools 14.x: SwiftPM no arranca ahí, y además no hay XCTest. No intentes repararlo;
+empaqueta con `Scripts/make-app-swiftc.sh` (mismo resultado, compilado con `swiftc`) y di que las
+pruebas quedaron sin correr.
 
 Si ya había una copia corriendo, ciérrala antes de copiar encima:
 

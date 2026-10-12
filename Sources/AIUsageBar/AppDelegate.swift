@@ -18,7 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            // `MainActor.assumeIsolated` no existe en Swift 5.8; la cola ya es la principal.
+            Task { @MainActor [weak self] in
                 self?.syncItems()
                 self?.items.values.forEach { $0.refresh() }
             }
